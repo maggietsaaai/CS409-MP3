@@ -1,5 +1,39 @@
 var Task = require('../models/task.js');
+var User = require('../models/user.js'); // needs to look up and update users
 var listDocuments = require('./query.js');
+
+// Checks assignedUser/assignedUserName. Returns { status, message } if invalid, or the values to save if OK
+async function checkAssignment(body) {
+    const assignedUser = body.assignedUser || ''; // missing → '' (unassigned)
+    const assignedUserName = body.assignedUserName; // may be undefined
+
+    if (assignedUser === '') { // unassigned: the name must be missing, '' or 'unassigned'
+        if (assignedUserName !== undefined && assignedUserName !== '' && assignedUserName !== 'unassigned') {
+            return { status: 400, message: '400: assignedUserName is set but assignedUser is not' };
+        }
+        return { assignedUser: '', assignedUserName: 'unassigned' };
+    }
+    if (typeof assignedUser !== 'string' || !/^[0-9a-fA-F]{24}$/.test(assignedUser)) { // malformed id in the BODY → 400
+        return { status: 400, message: '400: assignedUser is not a valid user id' };
+    }
+    const user = await User.findById(assignedUser);
+    if (!user) { // valid format, but nobody has this id → 404
+        return { status: 404, message: '404: Assigned user not found' };
+    }
+    if (assignedUserName !== undefined && assignedUserName !== '' && assignedUserName !== user.name) { // name doesn't match → 400
+        return { status: 400, message: '400: assignedUserName does not match the assigned user' };
+    }
+    return { assignedUser: assignedUser, assignedUserName: user.name }; // always save the real name
+}
+
+// After a task is saved: make users' pendingTasks match it
+async function syncTaskToUsers(task) {
+    const taskId = String(task._id); // pendingTasks stores ids as strings
+    await User.updateMany({ pendingTasks: taskId }, { $pull: { pendingTasks: taskId } }); // remove it from everyone
+    if (task.assignedUser !== '' && !task.completed) { // assigned and pending → add it back to its user only
+        await User.updateOne({ _id: task.assignedUser }, { $addToSet: { pendingTasks: taskId } });
+    }
+}
 
 module.exports = function (router) {
 
@@ -32,15 +66,21 @@ module.exports = function (router) {
                 return res.status(400).json({ message: '400: completed must be a boolean', data: null });
             }
 
+            const assignment = await checkAssignment(body);
+            if (assignment.status) { // checkAssignment found a problem → send its status + message
+                return res.status(assignment.status).json({ message: assignment.message, data: null });
+            }
+
             var task = new Task();
             task.name = body.name;
             task.description = body.description || '';
             task.deadline = body.deadline;
             task.completed = body.completed || false;
-            task.assignedUser = body.assignedUser || '';
-            task.assignedUserName = body.assignedUserName || 'unassigned';
+            task.assignedUser = assignment.assignedUser;
+            task.assignedUserName = assignment.assignedUserName;
 
             await task.save();
+            await syncTaskToUsers(task); // update the other side (users' pendingTasks)
             res.status(201).json({ message: '201: Task created successfully', data: task });
         }
         catch(err){
@@ -99,14 +139,20 @@ module.exports = function (router) {
             if (body.completed !== undefined && typeof body.completed !== 'boolean') {
                 return res.status(400).json({ message: '400: completed must be a boolean', data: null });
             }
+            const assignment = await checkAssignment(body);
+            if (assignment.status) { // checkAssignment found a problem → send its status + message
+                return res.status(assignment.status).json({ message: assignment.message, data: null });
+            }
+
             task.name = body.name;
             task.description = body.description || '';
             task.deadline = body.deadline;
             task.completed = body.completed || false;
-            task.assignedUser = body.assignedUser || '';
-            task.assignedUserName = body.assignedUserName || 'unassigned';
+            task.assignedUser = assignment.assignedUser;
+            task.assignedUserName = assignment.assignedUserName;
 
             await task.save();
+            await syncTaskToUsers(task); // update the other side (users' pendingTasks)
             res.status(200).json({ message: '200: Task updated successfully', data: task });
         }
         catch(err){
@@ -124,7 +170,9 @@ module.exports = function (router) {
                 return res.status(404).json({ message: '404: Task not found', data: null });
             }
             await task.deleteOne();
-            res.status(204).json({ message: '204: Task deleted successfully', data: task });
+            const taskId = String(task._id);
+            await User.updateMany({ pendingTasks: taskId }, { $pull: { pendingTasks: taskId } }); // remove it from its user's pendingTasks
+            res.status(204).send(); // 204 = success, no body
         }
         catch(err){
             res.status(500).json({ message: '500: Could not delete task', data: null });
