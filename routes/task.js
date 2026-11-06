@@ -124,7 +124,7 @@ module.exports = function (router) {
                 return res.status(404).json({ message: '404: Task not found', data: null });
             }
             await task.deleteOne();
-            res.status(200).json({ message: '200: Task deleted successfully', data: task });
+            res.status(204).json({ message: '204: Task deleted successfully', data: task });
         }
         catch(err){
             res.status(500).json({ message: '500: Could not delete task', data: null });

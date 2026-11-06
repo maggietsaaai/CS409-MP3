@@ -107,7 +107,7 @@ module.exports = function (router) {
                 return res.status(404).json({ message: '404: User not found', data: null });
             }
             await user.deleteOne();
-            res.status(200).json({ message: '200: User deleted successfully', data: user });
+            res.status(204).json({ message: '204: User deleted successfully', data: user });
         }
         catch(err){
             res.status(500).json({ message: '500: Could not delete user', data: null });
