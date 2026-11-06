@@ -1,4 +1,5 @@
 var Task = require('../models/task.js');
+var listDocuments = require('./query.js');
 
 module.exports = function (router) {
 
@@ -6,8 +7,7 @@ module.exports = function (router) {
 
     taskRoute.get(async function (req, res) {
         try{
-            const tasks = await Task.find().limit(100);
-            res.status(200).json({ message: '200: Tasks found', data: tasks });
+            await listDocuments(Task, req, res, 100);
         }
         catch(err){
             res.status(500).json({ message: '500: Could not get tasks', data: null });

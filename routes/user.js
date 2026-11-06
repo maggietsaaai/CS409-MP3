@@ -1,4 +1,5 @@
 var User = require('../models/user.js');
+var listDocuments = require('./query.js');
 
 module.exports = function (router) {
 
@@ -6,8 +7,7 @@ module.exports = function (router) {
 
     userRoute.get(async function (req, res) {
         try{
-            const users = await User.find();
-            res.status(200).json({ message: '200: Users found', data: users });
+            await listDocuments(User, req, res); // no 4th argument → defaultLimit is undefined → no limit
         }
         catch(err){
             res.status(500).json({ message: '500: Could not get users', data: null });
